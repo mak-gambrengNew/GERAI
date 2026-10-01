@@ -427,7 +427,6 @@ button:focus-visible,input:focus-visible,.drum-track:focus-visible{outline:3px s
 .quick-action.qr{background:linear-gradient(145deg,#f2faf4,#e4f4e8)}
 .quick-action.qr .qa-ico{background:#ccead3;color:#2e7442}
 .aksi-foot{padding:10px 14px 16px;display:flex;flex-direction:column;gap:10px}
-.demo-toggle{align-self:center;font-size:13px;color:var(--muted);padding:6px 10px}.demo-toggle b{color:var(--ink)}
 
 .manual-qty-box{display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0 16px}.manual-qty-input{width:100%;height:68px;border:2px solid #b9d9c0;border-radius:18px;background:#f4faf5;color:var(--ink);font-size:34px;font-weight:900;text-align:center;outline:none;box-shadow:inset 0 2px 7px #1d5b3210,0 6px 16px -12px #1d5b3250}.manual-qty-input:focus{border-color:#2f9b59;background:#fff;box-shadow:0 0 0 4px #2f9b5918,0 8px 18px -12px #1d5b3250}.manual-qty-box small{font-size:12px;color:var(--muted)}
 
@@ -467,7 +466,6 @@ body{background:#03190D}
 .lg-field input{font-size:19px}
 .lg-eye{width:46px;height:46px;border-radius:13px}
 #btnLogin{height:56px!important;border-radius:17px}
-.demo-hint{opacity:.9}
 
 /* Dashboard header */
 .topbar{position:relative;padding:calc(var(--sat) + 11px) 14px 14px;border-radius:0 0 28px 28px;background:linear-gradient(145deg,#0a9a4f 0%,#078542 48%,#006d35 100%);border:1px solid rgba(255,255,255,.16);box-shadow:0 16px 30px -14px rgba(3,48,25,.62),0 5px 10px -6px rgba(3,48,25,.38),inset 0 1px 0 rgba(255,255,255,.20),inset 0 -2px 5px rgba(0,58,27,.20);overflow:hidden}
@@ -583,7 +581,6 @@ body{background:#03190D}
 .quick-action.qr:before{background:#d4bdf5}
 .quick-action.qr .qa-ico{background:#c4a5ed;color:#63339b}
 .aksi-foot{padding:0 12px 10px;gap:6px}
-.demo-toggle{font-size:11px}
 .aksi-foot .btn{height:42px;border-radius:14px;font-size:14px}
 
 /* Bottom sheet */
@@ -1020,6 +1017,12 @@ function hydrateHistory(h){
     var items=(x.items||[]).map(function(it){return {id:it.menu_id||it.id,qty:Number(it.qty||it.quantity||0)}});
     return {id:x.id||x.transaction_id||('server-'+i),no:x.transaction_no||x.no||String(i+1).padStart(3,'0'),at:new Date(x.occurred_at||x.created_at||Date.now()).getTime(),day:today(),items:items,method:x.payment_method||x.method||'-',received:x.received_amount||null,op:null,sync:'ok',v:0,tried:false,total:Number(x.total_amount||0)};
   });
+  var maxSeq=0;
+  sales.forEach(function(x,i){
+    var n=Number(String(x.transaction_no||x.no||'').replace(/\D/g,''));
+    if(Number.isFinite(n)&&n>maxSeq)maxSeq=n;
+  });
+  db.seq=Math.max(db.seq||0,maxSeq);
   db.count=sales.filter(function(x){return today()===new Date(x.occurred_at||x.created_at||Date.now()).toLocaleDateString('sv-SE',{timeZone:TZ})}).length;
 }
 function setHistoryData(h){hydrateHistory(h);renderHistList();renderOtherHistory(h)}
@@ -1124,25 +1127,12 @@ async function submitOpening(){
   el('btnSubmitOpening').disabled=true;el('openingError').textContent='Menyimpan pembukaan ke server…';
   try{await apiOperation('open',{store_id:backend.context.store.id,opening_cash:cash,items:rows});await refreshContext();toast('Gerai berhasil dibuka.','success');enter()}catch(e){el('openingError').textContent=e.message||'Pembukaan Gerai gagal.'}finally{el('btnSubmitOpening').disabled=false}
 }
-var realtimeChannel=null;
-function setupRealtime(){
-  if(!supa||!backend.context||!backend.context.store)return;
-  if(realtimeChannel){try{realtimeChannel.unsubscribe()}catch(e){}}
-  var storeId=backend.context.store.id,businessId=backend.context.business&&backend.context.business.id,ch=supa.channel('gerai-'+storeId);
-  if(businessId)ch=ch.on('postgres_changes',{event:'*',schema:'public',table:'menus',filter:'business_id=eq.'+businessId},function(){refreshContext().then(renderAll).catch(function(){})});
-  if(businessId)ch=ch.on('postgres_changes',{event:'*',schema:'public',table:'inventory_items',filter:'business_id=eq.'+businessId},function(){refreshContext().then(renderAll).catch(function(){})});
-  ch=ch.on('postgres_changes',{event:'*',schema:'public',table:'stores',filter:'id=eq.'+storeId},function(){refreshContext().then(function(){if(isStoreOpen())renderAll();else showStoreGate()}).catch(function(){})});
-  ch=ch.on('postgres_changes',{event:'*',schema:'public',table:'store_inventory_items',filter:'store_id=eq.'+storeId},function(){refreshContext().then(renderAll).catch(function(){})});
-  ch=ch.on('postgres_changes',{event:'*',schema:'public',table:'store_operation_sessions',filter:'store_id=eq.'+storeId},function(){refreshContext().then(function(){if(isStoreOpen())renderAll();else showStoreGate()}).catch(function(){})});
-  ch=ch.on('postgres_changes',{event:'*',schema:'public',table:'monitoring_sales_events',filter:'store_id=eq.'+storeId},function(){loadHistoryFromServer()});
-  ch.subscribe(function(status){backend.realtime=status==='SUBSCRIBED';renderSync();if(!backend.realtime&&(status==='CHANNEL_ERROR'||status==='TIMED_OUT')){setTimeout(function(){if(backend.context&&navigator.onLine)setupRealtime();},5000);}}); realtimeChannel=ch;
-}
 function enter(){
   if(!backend.context)return;
   el('spgName').textContent=(backend.context.user&&backend.context.user.full_name)||'SPG';
   el('geraiName').textContent=(backend.context.store&&backend.context.store.name)||slugName(SLUG);
   updateHeaderTime();show('app');setTab('jual');renderAll();kick();
-  loadPushState();loadHistoryFromServer();setupRealtime();
+  loadPushState();loadHistoryFromServer();
 }
 async function logout(msg){
   closeSheet();order={};editing=null;backend.context=null;backend.history=null;messages=[];endSession();show('login');el('loginMsg').textContent=msg||'';
@@ -1157,29 +1147,6 @@ function setTab(t){
   if(t==='riwayat'){histOpen=true;renderHistList();clearInterval(histT);histT=setInterval(tickHist,1000)}
 }
 $$('.tab').forEach(function(b){b.addEventListener('click',function(){if(b.dataset.tab==='riwayat'){openHistory();return}setTab(b.dataset.tab)})});
-el('fabPesan').addEventListener('click',function(e){e.preventDefault();e.stopPropagation();openChatChoice();});
-function openChatChoice(){
-  openSheet('<div class="chat-choice"><h3>Kirim pesan ke</h3><p>Pilih kontak untuk membuka chat personal.</p><div class="chat-choice-list">'+
-    '<button class="chat-choice-btn owner" type="button" data-chat-choice="owner"><span class="chat-choice-icon"><svg viewBox="0 0 24 24"><path d="M4 20v-2.5A3.5 3.5 0 0 1 7.5 14h3A3.5 3.5 0 0 1 14 17.5V20"/><circle cx="9" cy="8" r="3"/><path d="M15 5.5a3 3 0 0 1 0 5.8M16.5 14h1A3.5 3.5 0 0 1 21 17.5V20"/></svg></span><span class="chat-choice-copy"><b>Owner</b><small>Pemilik usaha</small></span><span class="chat-choice-arrow">›</span></button>'+
-    '<button class="chat-choice-btn checker" type="button" data-chat-choice="checker"><span class="chat-choice-icon"><svg viewBox="0 0 24 24"><path d="M5 20v-2.5A3.5 3.5 0 0 1 8.5 14h3a3.5 3.5 0 0 1 3.5 3.5V20"/><circle cx="10" cy="8" r="3"/><path d="m16 8 1.5 1.5L21 6"/><path d="M16 14h2.5A2.5 2.5 0 0 1 21 16.5V20"/></svg></span><span class="chat-choice-copy"><b>Checker</b><small>Checker / pengecek</small></span><span class="chat-choice-arrow">›</span></button>'+
-  '</div></div>');
-  el('sheet').querySelectorAll('[data-chat-choice]').forEach(function(b){b.addEventListener('click',function(){closeSheet();openPersonalChat(b.dataset.chatChoice);});});
-}
-function openPersonalChat(target){
-  pesanTarget=target==='checker'?'checker':'owner';
-  el('app').classList.add('chat-mode');
-  $$('.tab').forEach(function(b){b.setAttribute('aria-selected','false')});
-  $$('.panel').forEach(function(p){p.classList.remove('on')});
-  el('p-pesan').classList.add('on');
-  var name=pesanTarget==='owner'?'Owner':'Checker';
-  el('chatName').textContent=name;
-  el('chatAvatar').textContent=name.charAt(0);
-  el('chatSub').textContent='Pesan personal · realtime';
-  el('pesanText').placeholder='Tulis pesan ke '+name+'...';
-  renderPesanList();
-  setTimeout(function(){el('pesanText').focus();ensureChatViewport();},120);
-}
-
 /* ================= Chat keyboard / multiline ================= */
 function ensureChatViewport(){
   var app=el('app'),vv=window.visualViewport;
@@ -1566,32 +1533,159 @@ function idbAll(){return new Promise(function(resolve,reject){var req=indexedDB.
 function idbPut(item){return new Promise(function(resolve,reject){var req=indexedDB.open('pwa-gerai',1);req.onupgradeneeded=function(){req.result.createObjectStore('pending-sales',{keyPath:'transaction_id'})};req.onsuccess=function(){var dbx=req.result,tx=dbx.transaction('pending-sales','readwrite');tx.objectStore('pending-sales').put(item);tx.oncomplete=function(){resolve()};tx.onerror=function(){reject(tx.error)}};req.onerror=function(){reject(req.error)}})}
 function idbRemove(id){return new Promise(function(resolve,reject){var req=indexedDB.open('pwa-gerai',1);req.onsuccess=function(){var dbx=req.result,tx=dbx.transaction('pending-sales','readwrite');tx.objectStore('pending-sales').delete(id);tx.oncomplete=function(){resolve()};tx.onerror=function(){reject(tx.error)}};req.onerror=function(){reject(req.error)}})}
 async function pendingList(){pendingSales=await idbAll().catch(function(){return []});return pendingSales}
-function record(){
-  var items=itemsFromOrder(),no='';
-  if(!backend.context||!backend.context.store)return;
-  if(editing){
-    var old=txById(editing.id);if(old&&old.sync!=='ok'){toast('Pesanan masih menunggu dikirim. Tunggu sampai terkirim sebelum mengubahnya.');return}if(!old||Date.now()-old.at>EDIT_MS){toast('Batas edit 5 menit terlewat');cancelEdit();closeSheet();return}
-    var updated={id:old.id,no:old.no,at:old.at,day:today(),items:items,method:pay.method,received:pay.method==='Tunai'?pay.received:null,total:orderTotal()};
-    var payload=makeSalePayload(updated);updated.sync='pending';db.tx=db.tx.map(function(x){return x.id===old.id?updated:x});editing=null;
-    apiSale('PATCH',payload).then(function(){updated.sync='ok';renderLight();toast('Pesanan #'+updated.no+' diperbarui');refreshContext().then(function(){loadHistoryFromServer()}).catch(function(){})}).catch(function(e){if(e.status===401||e.status===409){toast(e.message);return}var queued=Object.assign({},payload,{_queue_method:'PATCH'});idbPut(queued).then(function(){toast('Koneksi bermasalah. Perubahan menunggu dikirim.');kick();renderSync()}).catch(function(){toast('Perubahan belum tersimpan. Periksa koneksi lalu coba lagi.')})});
-  }else{
-    db.seq++;db.count++;no=pad(db.seq);var t={id:crypto.randomUUID(),no:no,at:Date.now(),day:today(),items:items,method:pay.method,received:pay.method==='Tunai'?pay.received:null,total:orderTotal(),sync:'pending'};db.tx.unshift(t);renderLight();
-    var payload2=makeSalePayload(t);
-    if(navigator.onLine){apiSale('POST',payload2).then(function(){t.sync='ok';renderLight();toast('Pesanan #'+no+' tersimpan dan masuk monitoring','success');refreshContext().then(renderAll).catch(function(){})}).catch(function(e){if(e.status===401||e.status===409){t.sync='error';renderLight();toast(e.message);return}idbPut(Object.assign({},payload2,{_queue_method:'POST'})).then(function(){toast('Koneksi bermasalah. Pesanan disimpan untuk dikirim ulang.','info');renderSync();kick()}).catch(function(){t.sync='error';renderLight();toast('Pesanan belum tersimpan. Jangan tutup aplikasi; periksa koneksi lalu coba lagi.')})})}
-    else{idbPut(Object.assign({},payload2,{_queue_method:'POST'})).then(function(){toast('Sedang offline. Pesanan disimpan untuk dikirim saat koneksi kembali.','info');renderSync()}).catch(function(){t.sync='error';renderLight();toast('Pesanan belum tersimpan di perangkat. Coba lagi saat koneksi tersedia.')})}
+var recordBusy=false;
+function setRecordButtonBusy(busy){
+  var b=el('rec');
+  if(b){
+    b.disabled=!!busy;
+    b.setAttribute('aria-busy',busy?'true':'false');
+    if(busy)b.textContent='Menyimpan…'; else b.textContent='Catat';
   }
-  order={};pay={method:'',received:0};closeSheet();renderLight();buzz(20);
 }
+function isTransientSaleError(e){
+  return !e || !e.status || e.status>=500;
+}
+async function record(){
+  if(recordBusy)return;
+  if(!backend.context||!backend.context.store)return;
+
+  var items=itemsFromOrder();
+  if(!items.length){toast('Pesanan belum diisi.');return}
+  if(!pay.method){toast('Pilih metode pembayaran.');return}
+  if(pay.method==='Tunai' && Number(pay.received)<orderTotal()){toast('Uang diterima belum cukup.');return}
+
+  recordBusy=true;
+  setRecordButtonBusy(true);
+
+  try{
+    if(editing){
+      var old=txById(editing.id);
+      if(old&&old.sync!=='ok'){
+        toast('Pesanan masih menunggu dikirim. Tunggu sampai terkirim sebelum mengubahnya.');
+        return;
+      }
+      if(!old||Date.now()-old.at>EDIT_MS){
+        toast('Batas edit 5 menit terlewat');
+        cancelEdit();
+        closeSheet();
+        return;
+      }
+
+      var updated={
+        id:old.id,no:old.no,at:old.at,day:today(),items:items,
+        method:pay.method,received:pay.method==='Tunai'?pay.received:null,
+        total:orderTotal(),sync:'pending'
+      };
+      var payload=makeSalePayload(updated);
+
+      try{
+        await apiSale('PATCH',payload);
+        updated.sync='ok';
+        db.tx=db.tx.map(function(x){return x.id===old.id?updated:x});
+        editing=null;
+        order={};pay={method:'',received:0};
+        closeSheet();renderLight();
+        toast('Pesanan #'+updated.no+' diperbarui','success');
+        refreshContext().then(function(){loadHistoryFromServer()}).catch(function(){});
+      }catch(e){
+        if(e.status===401){
+          toast(e.message||'Sesi login sudah berakhir. Silakan masuk kembali.');
+          return;
+        }
+        if(!isTransientSaleError(e)){
+          toast(e.message||'Perubahan belum dapat disimpan. Periksa pesanan lalu coba lagi.');
+          return;
+        }
+        await idbPut(Object.assign({},payload,{_queue_method:'PATCH'}));
+        db.tx=db.tx.map(function(x){return x.id===old.id?updated:x});
+        editing=null;
+        order={};pay={method:'',received:0};
+        closeSheet();renderLight();renderSync();
+        toast('Koneksi bermasalah. Perubahan disimpan dan akan dikirim ulang.','info');
+        kick();
+      }
+      return;
+    }
+
+    db.seq++;
+    db.count++;
+    var no=pad(db.seq);
+    var t={
+      id:crypto.randomUUID(),no:no,at:Date.now(),day:today(),
+      items:items,method:pay.method,received:pay.method==='Tunai'?pay.received:null,
+      total:orderTotal(),sync:'pending'
+    };
+    db.tx.unshift(t);
+    renderLight();
+
+    var payload2=makeSalePayload(t);
+    try{
+      if(!navigator.onLine)throw Object.assign(new Error('offline'),{status:0,offline:true});
+      await apiSale('POST',payload2);
+      t.sync='ok';
+      order={};pay={method:'',received:0};
+      closeSheet();renderLight();
+      toast('Pesanan #'+no+' tersimpan.','success');
+      refreshContext().then(renderAll).catch(function(){});
+    }catch(e){
+      if(e.status===401){
+        db.tx=db.tx.filter(function(x){return x.id!==t.id});
+        db.count=Math.max(0,db.count-1);
+        renderLight();
+        toast(e.message||'Sesi login sudah berakhir. Silakan masuk kembali.');
+        return;
+      }
+      if(!isTransientSaleError(e)){
+        db.tx=db.tx.filter(function(x){return x.id!==t.id});
+        db.count=Math.max(0,db.count-1);
+        renderLight();
+        toast(e.message||'Transaksi belum berhasil disimpan. Periksa pesanan lalu coba lagi.');
+        return;
+      }
+
+      try{
+        await idbPut(Object.assign({},payload2,{_queue_method:'POST'}));
+        order={};pay={method:'',received:0};
+        closeSheet();renderLight();renderSync();
+        toast(navigator.onLine?'Koneksi bermasalah. Pesanan disimpan dan akan dikirim ulang.':'Sedang offline. Pesanan disimpan untuk dikirim saat koneksi kembali.','info');
+        kick();
+      }catch(queueError){
+        db.tx=db.tx.filter(function(x){return x.id!==t.id});
+        db.count=Math.max(0,db.count-1);
+        renderLight();
+        toast('Pesanan belum tersimpan. Coba lagi.');
+      }
+    }
+  }finally{
+    recordBusy=false;
+    setRecordButtonBusy(false);
+  }
+}
+
 function cancelEdit(){editing=null;order={};pay={method:'',received:0};renderLight()}
 function startEdit(t){editing={id:t.id};order={};t.items.forEach(function(i){order[i.id]=i.qty});pay={method:t.method,received:t.received||0};closeSheet();setTab('jual');renderLight();toast('Mengedit #'+t.no+'. Ubah pesanan lalu bayar.')}
 function deleteTx(t){
-  if(!navigator.onLine){toast('Untuk menghapus pesanan, sambungkan internet terlebih dahulu.');return}
   if(t.sync!=='ok'){toast('Tunggu pesanan terkirim sebelum menghapusnya.');return}
   if(Date.now()-t.at>EDIT_MS){toast('Batas hapus 5 menit terlewat');return}
   if(!confirm('Hapus transaksi #'+t.no+'?'))return;
+
   var payload={transaction_id:t.id,store_id:backend.context.store.id};
-  apiSale('DELETE',payload).then(function(){db.tx=db.tx.filter(function(x){return x.id!==t.id});db.count=Math.max(0,db.count-1);renderLight();toast('Transaksi #'+t.no+' dihapus')}).catch(function(e){if(e.status===401||e.status===409){toast(e.message);return}toast('Penghapusan gagal: '+e.message)})
+  apiSale('DELETE',payload).then(function(){
+    db.tx=db.tx.filter(function(x){return x.id!==t.id});
+    db.count=Math.max(0,db.count-1);
+    renderLight();
+    toast('Transaksi #'+t.no+' dihapus');
+  }).catch(function(e){
+    if(e.status===401){toast(e.message||'Sesi login sudah berakhir. Silakan masuk kembali.');return}
+    if(!isTransientSaleError(e)){toast(e.message||'Penghapusan belum berhasil.');return}
+    idbPut(Object.assign({},payload,{_queue_method:'DELETE'})).then(function(){
+      db.tx=db.tx.filter(function(x){return x.id!==t.id});
+      db.count=Math.max(0,db.count-1);
+      renderLight();renderSync();toast('Koneksi bermasalah. Penghapusan disimpan untuk dikirim ulang.','info');kick();
+    }).catch(function(){toast('Penghapusan gagal. Coba lagi saat koneksi tersedia.')});
+  });
 }
+
 function kick(){clearTimeout(syncT);syncT=setTimeout(run,0)}
 function schedule(){clearTimeout(syncT);syncT=setTimeout(run,attempt<BACKOFF.length?BACKOFF[attempt]:LONG_RETRY)}
 async function run(){
@@ -1606,20 +1700,68 @@ async function run(){
 window.addEventListener('online',function(){backend.online=true;kick();refreshContext().then(function(){renderAll()}).catch(function(){})});
 window.addEventListener('offline',function(){backend.online=false;renderSync()});
 document.addEventListener('visibilitychange',function(){if(!document.hidden)kick()});
-el('pesanBack').addEventListener('click',function(){el('app').classList.remove('chat-mode');el('app').style.top='';el('app').style.height='';el('app').style.width='';setTab('jual')});
+el('pesanBack').addEventListener('click',function(){stopChatRealtime();backend.conversation=null;messages=[];el('app').classList.remove('chat-mode');el('app').style.top='';el('app').style.height='';el('app').style.width='';setTab('jual')});
 function escMsg(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 async function loadChatContacts(){try{var r=await apiContacts();backend.contacts=r.contacts||r.data||[];return backend.contacts}catch(e){toast(e.message);return []}}
+var chatRealtimeChannel=null;
+function stopChatRealtime(){
+  if(chatRealtimeChannel){
+    try{chatRealtimeChannel.unsubscribe()}catch(e){}
+    chatRealtimeChannel=null;
+  }
+}
+function setupChatRealtime(){
+  stopChatRealtime();
+  if(!supa||!backend.conversation)return;
+  var conversationId=backend.conversation.id||backend.conversation.conversation_id;
+  if(!conversationId)return;
+  chatRealtimeChannel=supa.channel('gerai-chat-'+conversationId)
+    .on('postgres_changes',{
+      event:'INSERT',schema:'public',table:'chat_messages',
+      filter:'conversation_id=eq.'+conversationId
+    },function(payload){
+      var row=payload&&payload.new;
+      if(!row)return;
+      loadMessages().catch(function(){});
+      if(row.sender_id && backend.session && row.sender_id!==backend.session.user.id)buzz(20);
+    })
+    .subscribe(function(status){
+      if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){
+        setTimeout(function(){if(backend.conversation&&navigator.onLine)setupChatRealtime()},5000);
+      }
+    });
+}
 async function openPersonalChat(target){
   pesanTarget=target==='checker'?'checker':'owner';
   var contacts=backend.contacts.length?backend.contacts:await loadChatContacts();
   var c=contacts.filter(function(x){return (x.role||x.type||'').toLowerCase()===pesanTarget||x.target===pesanTarget||x.key===pesanTarget})[0]||contacts.filter(function(x){return String(x.name||'').toLowerCase().includes(pesanTarget)})[0];
   if(!c){toast('Kontak '+(pesanTarget==='owner'?'Owner':'Checker')+' belum tersedia dari backend.');return}
-  try{var o=await apiChatOpen(c.user_id||c.id);backend.conversation=o.conversation||o.data||o;await loadMessages();el('app').classList.add('chat-mode');ensureChatViewport();el('chatName').textContent=c.full_name||c.name||(pesanTarget==='owner'?'Owner':'Checker');el('chatSub').textContent=pesanTarget==='owner'?'Pemilik usaha':'Checker';el('chatAvatar').textContent=(el('chatName').textContent||'•').charAt(0).toUpperCase();renderPesanList();updatePesanLive();el('pesanText').focus()}catch(e){toast(e.message)}}
+  try{var o=await apiChatOpen(c.user_id||c.id);backend.conversation=o.conversation||o.data||o;await loadMessages();setupChatRealtime();el('app').classList.add('chat-mode');ensureChatViewport();el('chatName').textContent=c.full_name||c.name||(pesanTarget==='owner'?'Owner':'Checker');el('chatSub').textContent=pesanTarget==='owner'?'Pemilik usaha':'Checker';el('chatAvatar').textContent=(el('chatName').textContent||'•').charAt(0).toUpperCase();renderPesanList();updatePesanLive();el('pesanText').focus()}catch(e){toast(e.message)}}
 async function loadMessages(){if(!backend.conversation)return;try{var r=await apiMessages(backend.conversation.id||backend.conversation.conversation_id);var arr=r.messages||r.data||[];messages=arr.map(function(m){return {id:m.id,text:m.body||m.text||'',at:new Date(m.created_at||m.sent_at||Date.now()).getTime(),mine:m.sender_id&&backend.session&&m.sender_id===backend.session.user?.id,status:'sent'}});renderPesanList();updatePesanLive()}catch(e){toast(e.message)}}
 function renderPesanList(){var box=el('pesanList');if(!box)return;var list=messages.slice(-50);if(!list.length){box.innerHTML='<div class="chat-empty"><b>Belum ada percakapan</b><span>Mulai chat dengan '+(pesanTarget==='owner'?'Owner':'Checker')+'</span></div>';return}box.innerHTML=list.map(function(m){return '<div class="chat-bubble '+(m.mine?'mine':'theirs')+'"><p>'+escMsg(m.text)+'</p><small>'+hhmm(m.at)+(m.status==='pending'?' · Menunggu koneksi':' · Terkirim')+'</small></div>'}).join('');box.scrollTop=box.scrollHeight}
 function updatePesanLive(){var b=el('pesanLive'),t=el('pesanLiveText');if(!b||!t)return;var pending=messages.filter(function(m){return m.status==='pending'}).length;b.classList.toggle('wait',pending>0);t.textContent=pending?(pending+' pesan menunggu koneksi'):'Realtime · siap mengirim'}
-el('btnKirimPesan').addEventListener('click',async function(){var tx=el('pesanText'),msg=tx?tx.value.trim():'';if(!msg){toast('Tulis pesan terlebih dahulu');if(tx)tx.focus();return}if(!backend.conversation){toast('Buka percakapan terlebih dahulu.');return}var clientMessageId=crypto.randomUUID();var local={id:clientMessageId,text:msg,at:Date.now(),mine:true,status:'pending'};messages.push(local);renderPesanList();updatePesanLive();tx.value='';try{await apiSendMessage(backend.conversation.id||backend.conversation.conversation_id,msg,clientMessageId);local.status='sent';renderPesanList();updatePesanLive();buzz(20)}catch(e){toast(e.message||'Pesan gagal dikirim');local.status='pending';renderPesanList();updatePesanLive()}});
-function openChatChoice(){openSheet('<div class="chat-choice"><h3>Kirim pesan ke</h3><p>Pilih kontak untuk membuka chat personal.</p><div class="chat-choice-list"><button class="chat-choice-btn owner" type="button" data-chat-choice="owner"><span class="chat-choice-copy"><b>Owner</b><small>Pemilik usaha</small></span><span class="chat-choice-arrow">›</span></button><button class="chat-choice-btn checker" type="button" data-chat-choice="checker"><span class="chat-choice-copy"><b>Checker</b><small>Pengecekan gerai</small></span><span class="chat-choice-arrow">›</span></button></div></div>');$$('[data-chat-choice]').forEach(function(b){b.onclick=function(){closeSheet();openPersonalChat(b.dataset.chatChoice)}})}
+el('btnKirimPesan').addEventListener('click',async function(){var tx=el('pesanText'),msg=tx?tx.value.trim():'';if(!msg){toast('Tulis pesan terlebih dahulu');if(tx)tx.focus();return}if(!backend.conversation){toast('Buka percakapan terlebih dahulu.');return}var clientMessageId=crypto.randomUUID();var local={id:clientMessageId,text:msg,at:Date.now(),mine:true,status:'pending'};messages.push(local);renderPesanList();updatePesanLive();tx.value='';try{await apiSendMessage(backend.conversation.id||backend.conversation.conversation_id,msg,clientMessageId);local.status='sent';renderPesanList();updatePesanLive();buzz(20)}
+catch(e){
+  if(!e.status||e.status>=500){
+    toast('Koneksi bermasalah. Pesan tetap menunggu koneksi.','info');
+    local.status='pending';
+  }else{
+    messages=messages.filter(function(x){return x.id!==clientMessageId});
+    toast(e.message||'Pesan gagal dikirim');
+  }
+  renderPesanList();updatePesanLive();
+}});
+function openChatChoice(){
+  openSheet(
+    '<div class="chat-choice"><h3>Kirim pesan ke</h3><p>Pilih kontak untuk membuka chat personal.</p><div class="chat-choice-list">'+
+    '<button class="chat-choice-btn owner" type="button" data-chat-choice="owner"><span class="chat-choice-copy"><b>Owner</b><small>Pemilik usaha</small></span><span class="chat-choice-arrow">›</span></button>'+
+    '<button class="chat-choice-btn checker" type="button" data-chat-choice="checker"><span class="chat-choice-copy"><b>Checker</b><small>Pengecekan gerai</small></span><span class="chat-choice-arrow">›</span></button>'+
+    '</div></div>'
+  );
+  el('sheet').querySelectorAll('[data-chat-choice]').forEach(function(b){
+    b.addEventListener('click',function(){closeSheet();openPersonalChat(b.dataset.chatChoice);});
+  });
+}
 el('fabPesan').addEventListener('click',function(e){e.preventDefault();e.stopPropagation();openChatChoice()});
 /* ================= Riwayat dari backend ================= */
 function recent(){return db.tx.filter(function(t){return t.day===today()}).sort(function(a,b){return b.at-a.at}).slice(0,10)}
@@ -1637,7 +1779,7 @@ function renderOtherHistory(h){
 function setHistoryView(name){$$('.history-tab').forEach(function(b){var on=b.dataset.history===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});$$('[data-history-panel]').forEach(function(p){p.classList.toggle('hidden',p.dataset.historyPanel!==name)});if(name==='sales')renderHistList();else loadHistoryFromServer()}
 $$('.history-tab').forEach(function(b){b.addEventListener('click',function(){setHistoryView(b.dataset.history)})});
 function stockLow(){return db.stock.filter(function(s){return s.qty<=s.min})}
-function renderSync(){var p=pendingSales.length,pill=el('syncPill');pill.className='pill'+(syncing?' busy':(p?' wait':''));el('syncTxt').textContent=syncing?'Mengirim…':(p?(p+' menunggu kirim'):(backend.online?(backend.realtime===false?'Online · pembaruan tertunda':'Terhubung'):'Tidak ada koneksi'));renderStrips();if(histOpen&&el('hlist'))renderHistList()}
+function renderSync(){var p=pendingSales.length,pill=el('syncPill');pill.className='pill'+(syncing?' busy':(p?' wait':''));el('syncTxt').textContent=syncing?'Mengirim…':(p?(p+' menunggu kirim'):(backend.online?'Online':'Tidak ada koneksi'));renderStrips();if(histOpen&&el('hlist'))renderHistList()}
 function renderStrips(){var h='',pend=pendingSales;if(editing){var t=txById(editing.id);h+='<div class="strip edit"><i></i><span>Mengedit #'+(t?t.no:'')+'</span><button class="u" id="stCancel" style="color:#fff;font-weight:600">Batal</button></div>'}if(pend.length){var oldest=Math.min.apply(null,pend.map(function(t){return t.created_at||Date.now()}));if(Date.now()-oldest>WARN_UNSYNCED_MS)h+='<button class="strip yellow" id="stSync"><i></i><span>'+pend.length+' transaksi belum tersinkron</span><u>Kirim ulang</u></button>'}el('strips').innerHTML=h;var b=el('stCancel');if(b)b.onclick=cancelEdit;b=el('stSync');if(b)b.onclick=function(){attempt=0;kick();toast('Mencoba kirim ulang')}}
 function renderTop(){el('todayCount').textContent=db.count+' transaksi hari ini'}
 function renderStock(){var low=0;if(!db.stock.length){el('stokList').innerHTML='<div class="emptyh">Stok belum dimuat dari backend.</div>';el('stokInfo').textContent='Menunggu data stok dari backend.';return}el('stokList').innerHTML=db.stock.map(function(s){var cls='',st='Aman';if(s.qty===0){cls='out';st='Habis. Segera hubungi admin.';low++}else if(s.qty<=s.min){cls='low';st='Menipis. Minimal '+fmtMin(s)+' '+s.unit+'.';low++}var pct=Math.min(100,Math.round(s.qty/Math.max(s.max,1)*100));return '<div class="stock '+cls+'"><div class="ring" style="--p:'+pct+'"><span class="num">'+pct+'%</span></div><div class="info"><div class="top"><b>'+escMsg(s.name)+'</b><span class="q num">'+fmtQty(s)+' <small>'+escMsg(s.unit)+'</small></span></div><div class="sti">'+st+'</div></div></div>'}).join('');el('stokInfo').textContent=(low?(low+' item perlu diisi ulang. '):'Semua stok aman. ')+'Angka final dihitung server.'}
