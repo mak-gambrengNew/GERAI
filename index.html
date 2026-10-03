@@ -67,8 +67,11 @@ button:focus-visible,input:focus-visible,.drum-track:focus-visible{outline:3px s
 /* ---------- Kode akses ---------- */
 #login{background:radial-gradient(100% 55% at 50% 0%,#12A057 0%,var(--brand) 58%,#00662B 100%);color:#fff;padding:calc(var(--sat) + 26px) 24px calc(var(--sab) + 20px)}
 .lg-logo{width:min(46vw,188px);height:auto;aspect-ratio:1;margin:6px auto 16px;display:block;filter:drop-shadow(0 18px 24px #00000040)}
-#login h1{font-family:var(--display);font-size:28px;font-weight:800;margin:0 0 6px;letter-spacing:-.025em;text-align:center}
-#login .lead{margin:0 auto 22px;color:#D5EFDD;text-align:center;max-width:300px}
+#login h1{font-family:var(--display);font-size:28px;font-weight:800;margin:0 0 7px;letter-spacing:-.025em;text-align:center;line-height:1.12}
+.login-greeting{text-align:center;margin:0 auto 22px;max-width:340px}
+.login-hello{font-size:17px;font-weight:700;color:#E8F7EC;margin-bottom:6px}
+#login h1 span{display:inline}
+#login .lead{margin:8px auto 0;color:#D5EFDD;text-align:center;max-width:300px;font-size:14.5px;line-height:1.5}
 .lg-form{display:flex;flex-direction:column;gap:12px}
 .lg-field{display:flex;align-items:center;background:#fff;border-radius:18px;height:62px;padding:0 6px 0 18px;box-shadow:0 14px 24px -16px #00000066}
 .lg-field:focus-within{outline:3px solid var(--accent)}
@@ -693,8 +696,11 @@ body{background:#03190D}
   <!-- Kode akses (halaman login khusus SPG) -->
   <section id="login" class="screen" aria-label="Kode akses SPG">
     <img class="lg-logo" data-logo width="188" height="188" alt="Logo Teh Solo Ma'Gambreng">
-    <h1>Masukkan kode akses</h1>
-    <p class="lead" id="loginLead">Kode dari pemilik usaha untuk gerai ini.</p>
+    <div class="login-greeting" aria-live="polite">
+      <div class="login-hello">Halo...</div>
+      <h1 id="loginGreeting">Selamat Datang Di Gerai <span>Gerai</span></h1>
+      <p class="lead" id="loginLead">Siap Bertugas Hari ini?</p>
+    </div>
     <div class="lg-form" id="lgForm">
       <div class="lg-field">
         <input id="code" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Kode akses" aria-label="Kode akses">
@@ -706,6 +712,19 @@ body{background:#03190D}
     
   </section>
 
+
+  <!-- Dead-end link: tampil hanya jika URL Gerai tidak terdaftar/valid di server. -->
+  <section id="invalidLink" class="screen" aria-label="Link Gerai tidak valid">
+    <div class="store-state-wrap">
+      <img class="store-state-logo" data-logo width="142" height="142" alt="Logo Teh Solo Ma'Gambreng">
+      <div class="store-state-card">
+        <div class="store-status-icon" aria-hidden="true">!</div>
+        <h1>Link Gerai Tidak Valid</h1>
+        <p class="state-lead">Link ini tidak terdaftar sebagai Gerai aktif di server. Gunakan link Gerai yang diberikan Owner.</p>
+        <div class="store-meta"><span id="invalidGeraiName">Link tidak terdaftar</span><span>STATUS · TIDAK VALID</span></div>
+      </div>
+    </div>
+  </section>
 
   <!-- Status gerai: default TUTUP. Setelah login SPG diarahkan ke sini. -->
   <section id="storeClosed" class="screen" aria-label="Gerai tutup">
@@ -955,11 +974,16 @@ var FUNCTION_BASE=SUPABASE_URL+'/functions/v1';
 var supa=window.supabase&&window.supabase.createClient?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}}):null;
 var SLUG=(function(){
   var parts=location.pathname.split('/').filter(Boolean);
-  var s=(parts[0]==='gerai'?parts[1]:parts[0])||new URLSearchParams(location.search).get('slug')||'';
+  var s=(parts[0]==='gerai'&&parts.length>=2?parts[1]:'');
   if(!s||/\.html?$/i.test(s)||s==='login'||s==='gerai')s='';
   return s.toLowerCase();
 })();
 function slugName(s){return s?s.split('-').map(function(w){return w.charAt(0).toUpperCase()+w.slice(1)}).join(' '):'Gerai';}
+function escapeHtml(v){return String(v||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]})}
+function isStandalonePwa(){return !!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true}
+function rememberGeraiSlug(slug){try{if(slug)localStorage.setItem('gerai:last-slug',slug)}catch(e){}}
+if(SLUG)rememberGeraiSlug(SLUG);
+else if(isStandalonePwa()){try{var lastSlug=localStorage.getItem('gerai:last-slug');if(lastSlug)location.replace('/gerai/'+encodeURIComponent(lastSlug)+'/')}catch(e){}}
 var CATS=[];var TINT={};var GLYPH={};var MENU=[];var STOCK0=[];var PER_CUP=[];var MASTER_LOGISTICS=[];
 var db={day:'',seq:0,count:0,mode:'grid',tx:[],stock:[]};
 var backend={context:null,history:null,contacts:[],conversation:null,online:navigator.onLine};
@@ -984,6 +1008,13 @@ async function apiInvoke(name,body,auth){
 }
 async function apiLogin(code){return apiInvoke('spg-login',{access_code:code,slug:SLUG},false)}
 async function apiContext(){return apiInvoke('gerai-context',{slug:SLUG})}
+async function validateGeraiLink(){
+  if(!SLUG)return {valid:false};
+  try{
+    var res=await fetch(FUNCTION_BASE+'/gerai-public/gerai/'+encodeURIComponent(SLUG),{method:'GET',headers:{'apikey':SUPABASE_KEY}});
+    return {valid:res.ok,status:res.status};
+  }catch(e){throw new Error('Link Gerai tidak dapat diverifikasi. Periksa koneksi internet.')}
+}
 async function apiOperation(action,body){var x=body||{};x.action=action;return apiInvoke('gerai-operations',x)}
 async function apiHistory(){var store=backend.context&&backend.context.store;return apiInvoke('gerai-data',{action:'history',store_id:store.id,limit:50})}
 async function apiContacts(){return apiInvoke('gerai-data',{action:'chat_contacts'})}
@@ -1050,7 +1081,8 @@ el('geraiName').textContent=slugName(SLUG);
 function updateHeaderTime(){var d=new Date();var date=d.toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});var time=d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}).replace(':','.');el('headerTime').textContent=date+' · '+time;}
 updateHeaderTime();
 setInterval(updateHeaderTime,1000);
-el('loginLead').textContent='Kode dari pemilik usaha untuk '+slugName(SLUG)+'.';
+el('loginGreeting').innerHTML='Selamat Datang Di Gerai <span>'+escapeHtml(slugName(SLUG).toUpperCase())+'</span>';
+el('loginLead').textContent='Siap Bertugas Hari ini?';
 
 /* ================= Auth / Gerai lifecycle ================= */
 var sessionReady=false;
@@ -1067,12 +1099,23 @@ async function refreshContext(){
 }
 async function bootBackend(){
   try{
-    if(!SLUG){show('storeClosed');el('closedGeraiName').textContent='Link Gerai tidak valid';return}
+    if(!SLUG){
+      show('invalidLink');
+      el('invalidGeraiName').textContent=isStandalonePwa()?'Buka dari link Gerai yang terdaftar':'Link Gerai tidak terdaftar';
+      return;
+    }
+    var validLink=await validateGeraiLink();
+    if(!validLink.valid){
+      show('invalidLink');
+      el('invalidGeraiName').textContent='Gerai "'+slugName(SLUG)+'" tidak terdaftar atau tidak aktif';
+      return;
+    }
+    rememberGeraiSlug(SLUG);
     var s=await authSession();
-    if(s){newSession(s);await refreshContext();showStoreGate();}else{show('storeClosed');el('closedGeraiName').textContent=slugName(SLUG)}
+    if(s){newSession(s);await refreshContext();showStoreGate();}else{show('login');el('loginGreeting').innerHTML='Selamat Datang Di Gerai <span>'+escapeHtml(slugName(SLUG).toUpperCase())+'</span>'}
   }catch(e){
-    if(e.status===401){endSession();show('storeClosed');el('closedGeraiName').textContent=slugName(SLUG)}
-    else {show('storeClosed');el('closedGeraiName').textContent=slugName(SLUG);toast(e.message||'Gerai belum dapat dimuat')}
+    if(e.status===401){endSession();show('login');}
+    else {show('invalidLink');el('invalidGeraiName').textContent=e.message||'Link Gerai tidak dapat diverifikasi.'}
   }
 }
 if(supa){supa.auth.onAuthStateChange(function(event,session){if(session){backend.session=session;sessionReady=true}else if(event==='SIGNED_OUT'){backend.session=null;sessionReady=false}})}
@@ -1084,7 +1127,9 @@ if(supa){supa.auth.onAuthStateChange(function(event,session){if(session){backend
 
 el('eye').addEventListener('click',function(){var i=el('code'),h=i.type==='password';i.type=h?'text':'password';el('eye').setAttribute('aria-label',h?'Sembunyikan kode':'Tampilkan kode')});
 async function tryLogin(){
-  var v=el('code').value.trim();if(!v){showError('Isi kode akses dulu.');return}
+  var v=el('code').value.trim();
+  if(!SLUG){showError('Link Gerai tidak valid. Buka link Gerai dari Owner.');return}
+  if(!v){showError('Isi kode akses dulu.');return}
   if(v.length<6){showError('Kode akses minimal 6 karakter.');return}
   var f=el('lgForm');el('btnLogin').disabled=true;showError('Memverifikasi…');
   try{
@@ -1095,7 +1140,14 @@ async function tryLogin(){
     if(sr.error)throw sr.error;
     newSession(sr.data.session||result.session);el('code').value='';el('code').type='password';
     await refreshContext();showStoreGate();toast('Akses SPG berhasil diverifikasi');
-  }catch(e){f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake');showError(e.message||'Kode akses tidak dapat diverifikasi.');buzz(120)}
+  }catch(e){
+    f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake');
+    var msg=e&&e.message?e.message:'Kode akses tidak dapat diverifikasi.';
+    if(e&&e.status===401)msg='Kode akses salah atau akun SPG tidak aktif.';
+    else if(e&&e.status===404)msg='Gerai pada link ini tidak ditemukan atau tidak aktif.';
+    else if(e&&e.status>=500)msg='Server sedang bermasalah. Coba lagi beberapa saat.';
+    showError(msg);buzz(120)
+  }
   finally{el('btnLogin').disabled=false}
 }
 el('btnLogin').addEventListener('click',tryLogin);
@@ -1108,7 +1160,10 @@ el('btnClosedLogout').addEventListener('click',function(){logout()});
 
 function isStoreOpen(){return !!(backend.context&&backend.context.session)}
 function showStoreGate(){
-  el('closedGeraiName').textContent=(backend.context&&backend.context.store&&backend.context.store.name)||slugName(SLUG);
+  var storeName=(backend.context&&backend.context.store&&backend.context.store.name)||slugName(SLUG);
+  rememberGeraiSlug(SLUG);
+  el('closedGeraiName').textContent=storeName;
+  el('loginGreeting').innerHTML='Selamat Datang Di Gerai <span>'+escapeHtml(storeName.toUpperCase())+'</span>';
   if(isStoreOpen()){enter();return}
   show('storeClosed');
 }
@@ -1118,7 +1173,17 @@ function renderOpeningLogistics(){
   box.innerHTML=items.map(function(x){var id=x.inventory_item_id||x.id;return '<label class="logistic-row"><input type="checkbox" data-logistic-id="'+id+'" checked><span class="logistic-name"><b>'+escMsg(x.name||'Item')+'</b><small>'+escMsg(x.unit||'')+' · '+(String(x.logistics_type||'').toUpperCase()==='ACTIVE'?'Aktif · berkurang saat penjualan':'Pasif · diperiksa Checker')+'</small></span><input class="logistic-qty" data-logistic-qty="'+id+'" type="number" min="0" step="0.01" inputmode="decimal" value="0" aria-label="Jumlah '+escMsg(x.name||'Item')+'"></label>'}).join('');
   box.querySelectorAll('[data-logistic-id]').forEach(function(cb){cb.addEventListener('change',function(){var q=box.querySelector('[data-logistic-qty="'+cb.dataset.logisticId+'"]');q.disabled=!cb.checked})});
 }
-function openStoreForm(){renderOpeningLogistics();el('openingCash').value='';el('openingError').textContent='';show('openStore')}
+function openStoreForm(){
+  if(!backend.context||!backend.context.store){el('openingError').textContent='Data Gerai belum tersedia dari server.';return}
+  if(backend.context.capabilities&&!backend.context.capabilities.open){el('openingError').textContent='Gerai tidak dapat dibuka pada kondisi saat ini.';return}
+  el('btnOpenStore').disabled=true;
+  try{
+    renderOpeningLogistics();
+    el('openingCash').value='';
+    el('openingError').textContent='';
+    show('openStore');
+  }finally{el('btnOpenStore').disabled=false}
+}
 async function submitOpening(){
   var rows=[],valid=true,box=el('openingLogistics');
   $$('#openingLogistics [data-logistic-id]').forEach(function(cb){if(cb.checked){var input=box.querySelector('[data-logistic-qty="'+cb.dataset.logisticId+'"]');var q=Number(input&&input.value);if(!Number.isFinite(q)||q<0)valid=false;rows.push({inventory_item_id:cb.dataset.logisticId,quantity:q})}});
@@ -1127,7 +1192,14 @@ async function submitOpening(){
   if(!Number.isFinite(cash)||cash<0){el('openingError').textContent='Isi kas awal dengan benar.';return}
   if(!navigator.onLine){el('openingError').textContent='Pembukaan Gerai harus online.';return}
   el('btnSubmitOpening').disabled=true;el('openingError').textContent='Menyimpan pembukaan ke server…';
-  try{await apiOperation('open',{store_id:backend.context.store.id,opening_cash:cash,items:rows});await refreshContext();toast('Gerai berhasil dibuka.','success');enter()}catch(e){el('openingError').textContent=e.message||'Pembukaan Gerai gagal.'}finally{el('btnSubmitOpening').disabled=false}
+  try{
+    if(!backend.context||!backend.context.store)throw new Error('Data Gerai belum tersedia dari server.');
+    if(backend.context.capabilities&&!backend.context.capabilities.open)throw new Error('Gerai tidak dapat dibuka pada kondisi saat ini.');
+    await apiOperation('open',{store_id:backend.context.store.id,opening_cash:cash,items:rows});
+    await refreshContext();
+    if(!(backend.context.context?backend.context.context.session:backend.context.session)){throw new Error('Server belum mengonfirmasi sesi pembukaan Gerai.');}
+    toast('Gerai berhasil dibuka.','success');enter()
+  }catch(e){el('openingError').textContent=e.message||'Pembukaan Gerai gagal.'}finally{el('btnSubmitOpening').disabled=false}
 }
 function enter(){
   if(!backend.context)return;
@@ -1816,7 +1888,7 @@ setInterval(function(){
 },15000);
 
 /* ================= PWA ================= */
-try{if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0)navigator.serviceWorker.register('/sw.js').catch(function(){})}catch(e){}
+try{if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0)navigator.serviceWorker.register('/sw.js',{scope:'/gerai/'}).catch(function(){})}catch(e){}
 })();
 </script>
 </body>
