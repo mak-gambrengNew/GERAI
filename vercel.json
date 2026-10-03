@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/gerai/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}
